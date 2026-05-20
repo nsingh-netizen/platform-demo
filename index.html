@@ -1,3 +1,5 @@
+
+
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -4756,6 +4758,105 @@ setTimeout(applyV11Nav,0);
     return chips + oldAnc(s);
   }; }
 })();
+
+/* ===== V13 SPONSOR TAB CLEANUP: remove financial columns, add search, show received + pending deliverables ===== */
+var SPONSOR_FILTERS_V13 = {q:'',status:'All',deliverable:'All'};
+function sponsorActiveV13(sp){return (sp&&sp.sowStatus)!=='Declined';}
+function sponsorReadyV13(sp){return !!(sp&&sp.kickoffDone==='Yes'&&sp.logoStatus==='Received'&&(sp.posterExpected!=='Yes'||sp.posterStatus==='Received'));}
+function sponsorNamesV13(list,emptyText){
+  return list.length ? list.map(function(sp){return '<span class="mini-name">'+esc(sp.company||'Unnamed')+'</span>';}).join('') : '<span class="mini-empty">'+esc(emptyText||'None')+'</span>';
+}
+function sponsorSearchBlobV13(sp){
+  return [sp.sowStatus,sp.company,sp.poc,sp.email,sp.cell,sp.sponsorshipType,sp.registrationOffered,sp.registered,sp.roomAllocation,sp.roomsBooked,sp.kickoffDone,sp.logoStatus,sp.posterStatus,sp.posterExpected].join(' ').toLowerCase();
+}
+function sponsorPassV13(row){
+  var sp=row.sp||{}, q=(SPONSOR_FILTERS_V13.q||'').toLowerCase();
+  if(q && sponsorSearchBlobV13(sp).indexOf(q)<0)return false;
+  if(SPONSOR_FILTERS_V13.status!=='All' && (sp.sowStatus||'')!==SPONSOR_FILTERS_V13.status)return false;
+  if(SPONSOR_FILTERS_V13.deliverable==='Kickoff Pending' && (sp.kickoffDone==='Yes'||!sponsorActiveV13(sp)))return false;
+  if(SPONSOR_FILTERS_V13.deliverable==='Logo Missing' && (sp.logoStatus==='Received'||!sponsorActiveV13(sp)))return false;
+  if(SPONSOR_FILTERS_V13.deliverable==='Poster Missing' && (!(sp.posterExpected==='Yes'&&sp.posterStatus!=='Received')||!sponsorActiveV13(sp)))return false;
+  if(SPONSOR_FILTERS_V13.deliverable==='Complete' && !sponsorReadyV13(sp))return false;
+  return true;
+}
+function sponsorPresetV13(status,deliverable){
+  SPONSOR_FILTERS_V13.status=status||'All';
+  SPONSOR_FILTERS_V13.deliverable=deliverable||'All';
+  renderTab('sponsors');
+}
+function sponsorResetV13(){SPONSOR_FILTERS_V13={q:'',status:'All',deliverable:'All'};renderTab('sponsors');}
+function sponsorChipV13(label,status,deliverable){
+  var on=SPONSOR_FILTERS_V13.status===(status||'All')&&SPONSOR_FILTERS_V13.deliverable===(deliverable||'All');
+  return '<span class="qchip '+(on?'on':'')+'" onclick="sponsorPresetV13(\''+(status||'All')+'\',\''+(deliverable||'All')+'\')">'+label+'</span>';
+}
+function parseSponsorV13Paste(txt){
+  var keys=['sowStatus','company','poc','email','cell','sponsorshipType','registrationOffered','registered','roomAllocation','roomsBooked','kickoffDone','logoStatus','posterStatus','posterExpected'];
+  return String(txt||'').trim().split(/\r?\n/).filter(Boolean).map(function(line){
+    var c=line.split('\t'); if(c.length===1)c=line.split(',');
+    var sp={}; keys.forEach(function(k,i){sp[k]=(c[i]||'').trim();});
+    if(/^sow status$/i.test(sp.sowStatus||'')||/^company$/i.test(sp.company||''))return null;
+    if(!sp.sowStatus)sp.sowStatus='Pending';
+    if(!sp.sponsorshipType)sp.sponsorshipType='';
+    ['registrationOffered','registered','roomAllocation','roomsBooked'].forEach(function(k){sp[k]=sp[k]===''?'':(parseFloat(sp[k])||0);});
+    if(!sp.kickoffDone)sp.kickoffDone='';
+    if(!sp.logoStatus)sp.logoStatus='';
+    if(!sp.posterStatus)sp.posterStatus='';
+    if(!sp.posterExpected)sp.posterExpected='';
+    sp.lastUpdated=typeof first3TodayStamp==='function'?first3TodayStamp():'';
+    return sp;
+  }).filter(function(sp){return sp&&(sp.company||sp.poc||sp.email);});
+}
+window.showSponsorPasteV2=function(){
+  openM('<h2>'+icon('paste')+' Bulk Paste Sponsors</h2><div class="ib"><strong>Paste from Excel.</strong> Column order: SOW Status, Company, POC, Email, Cell, Sponsorship Type, Registration Offered, Registered, Room Allocation, Rooms Booked, Kickoff Done, Logo, Poster, Poster Expected.</div><div class="fld"><label>Paste rows</label><textarea id="sponsorPasteV2" style="min-height:240px;font-family:var(--mono)"></textarea></div><div class="ma"><button class="btn" onclick="closeM()">Cancel</button><button class="btn btn-n" onclick="saveSponsorPasteV2()">Import rows</button></div>');
+};
+window.saveSponsorPasteV2=function(){
+  var rows=parseSponsorV13Paste(document.getElementById('sponsorPasteV2').value);
+  if(!rows.length){alert('No sponsor rows detected.');return;}
+  var s=ensureV6(AS); Array.prototype.push.apply(s.sponsors,rows); ssd(AS,s); closeM(); renderTab('sponsors');
+};
+window.addSponsorV6=function(){
+  var s=ensureV6(AS); s.sponsors=s.sponsors||[];
+  s.sponsors.push({sowStatus:'',company:'',poc:'',email:'',cell:'',sponsorshipType:'',registrationOffered:'',registered:'',roomAllocation:'',roomsBooked:'',kickoffDone:'',logoStatus:'',posterStatus:'',posterExpected:''});
+  ssd(AS,s); renderTab('sponsors');
+  setTimeout(function(){var e=document.querySelector('.sponsor-v13-grid tbody tr:last-child input,.sponsor-v13-grid tbody tr:last-child select'); if(e)e.focus();},50);
+};
+window.exportSponsors=function(){
+  var s=ensureV6(AS); if(!s.sponsors.length){alert('No data');return;}
+  var rows=s.sponsors.map(function(sp){
+    var regRemain=(parseFloat(sp.registrationOffered)||0)-(parseFloat(sp.registered)||0);
+    var roomRemain=(parseFloat(sp.roomAllocation)||0)-(parseFloat(sp.roomsBooked)||0);
+    return {
+      SOW_Status:sp.sowStatus||'', Company:sp.company||'', POC:sp.poc||'', Email:sp.email||'', Cell:sp.cell||'', Sponsorship_Type:sp.sponsorshipType||'',
+      Registration_Offered:sp.registrationOffered||'', Registered:sp.registered||'', Registration_Remaining:regRemain,
+      Room_Allocation:sp.roomAllocation||'', Rooms_Booked:sp.roomsBooked||'', Rooms_Remaining:roomRemain,
+      Kickoff_Done:sp.kickoffDone||'', Logo:sp.logoStatus||'', Poster:sp.posterStatus||'', Poster_Expected:sp.posterExpected||''
+    };
+  });
+  var wb=XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(rows),'Sponsors'); XLSX.writeFile(wb,AS+'-sponsors.xlsx');
+};
+window.rSponsors=function(s){
+  s=ensureV6(AS); var ro=isRO();
+  var allRows=(s.sponsors||[]).map(function(sp,i){return {sp:sp,i:i};}).sort(function(a,b){return v9SponsorRank(a.sp)-v9SponsorRank(b.sp)||String(a.sp.company||'').localeCompare(String(b.sp.company||''));});
+  var rows=allRows.filter(sponsorPassV13), active=allRows.map(function(x){return x.sp;}).filter(sponsorActiveV13);
+  var contracted=allRows.filter(function(x){return x.sp.sowStatus==='Contracted';}).length, pending=allRows.filter(function(x){return x.sp.sowStatus==='Pending';}).length, declined=allRows.filter(function(x){return x.sp.sowStatus==='Declined';}).length;
+  var offered=active.reduce(function(a,x){return a+(parseFloat(x.registrationOffered)||0);},0), reg=active.reduce(function(a,x){return a+(parseFloat(x.registered)||0);},0), roomAlloc=active.reduce(function(a,x){return a+(parseFloat(x.roomAllocation)||0);},0), rooms=active.reduce(function(a,x){return a+(parseFloat(x.roomsBooked)||0);},0);
+  var kickoffPend=active.filter(function(x){return x.company&&x.kickoffDone!=='Yes';}), logoPend=active.filter(function(x){return x.company&&x.logoStatus!=='Received';}), posterPend=active.filter(function(x){return x.company&&x.posterExpected==='Yes'&&x.posterStatus!=='Received';});
+  var kickoffDone=active.filter(function(x){return x.company&&x.kickoffDone==='Yes';}), logoDone=active.filter(function(x){return x.company&&x.logoStatus==='Received';}), posterDone=active.filter(function(x){return x.company&&x.posterStatus==='Received';}), ready=active.filter(sponsorReadyV13);
+  var html='<div class="quick-chips v12-chips">'+sponsorChipV13('All Sponsors','All','All')+sponsorChipV13('Pending','Pending','All')+sponsorChipV13('Kickoff Pending','All','Kickoff Pending')+sponsorChipV13('Logo Missing','All','Logo Missing')+sponsorChipV13('Poster Missing','All','Poster Missing')+sponsorChipV13('Complete','All','Complete')+'</div>';
+  html+='<div class="mg mg4 sponsor-cashbook pretty-cards v9-card-row">'+metricBox('Sponsors',allRows.length,contracted+' contracted','ac')+metricBox('Deliverables Ready',ready.length+'/'+active.length,'kickoff, logo, poster','ok')+metricBox('Registration',reg+'/'+offered,Math.max(offered-reg,0)+' remaining','pb')+metricBox('Rooms Booked',rooms+(roomAlloc?'/'+roomAlloc:''),roomAlloc?Math.max(roomAlloc-rooms,0)+' remaining':'total booked','wn')+'</div>';
+  html+='<div class="spread-toolbar colorful-toolbar v9-toolbar sponsor-toolbar-v13"><div class="spread-left"><input class="grid-search sponsor-search-v13" placeholder="Search sponsors, POC, email, status..." value="'+esc(SPONSOR_FILTERS_V13.q)+'" oninput="SPONSOR_FILTERS_V13.q=this.value;renderTab(\'sponsors\')"><select onchange="SPONSOR_FILTERS_V13.status=this.value;renderTab(\'sponsors\')"><option>All</option>'+SPONSOR_SOW_STATUSES_V9.filter(Boolean).map(function(x){return '<option '+(SPONSOR_FILTERS_V13.status===x?'selected':'')+'>'+x+'</option>';}).join('')+'</select><select onchange="SPONSOR_FILTERS_V13.deliverable=this.value;renderTab(\'sponsors\')"><option>All</option><option '+(SPONSOR_FILTERS_V13.deliverable==='Kickoff Pending'?'selected':'')+'>Kickoff Pending</option><option '+(SPONSOR_FILTERS_V13.deliverable==='Logo Missing'?'selected':'')+'>Logo Missing</option><option '+(SPONSOR_FILTERS_V13.deliverable==='Poster Missing'?'selected':'')+'>Poster Missing</option><option '+(SPONSOR_FILTERS_V13.deliverable==='Complete'?'selected':'')+'>Complete</option></select><span class="p pb">'+rows.length+' shown</span></div><div class="spread-actions">'+(!ro?'<button class="btn" onclick="showSponsorPasteV2()">'+icon('paste')+' Bulk paste</button><button class="btn btn-n" onclick="addSponsorV6()">'+icon('plus')+' Add row</button><button class="btn" onclick="sortSponsorRowsV6()">'+icon('arrow-down-short-wide')+' Sort</button>':'')+'<button class="btn" onclick="sponsorResetV13()">'+icon('rotate-left')+' Reset</button><button class="btn" onclick="exportSponsors()">'+icon('download')+' Export</button></div></div>';
+  html+='<div class="sponsor-alert-row sponsor-status-board-v13"><div class="mini-panel pending"><b>Kickoff Pending</b><div>'+sponsorNamesV13(kickoffPend,'Clear')+'</div></div><div class="mini-panel pending"><b>Logo Not Received</b><div>'+sponsorNamesV13(logoPend,'Clear')+'</div></div><div class="mini-panel pending"><b>Poster Expected / Missing</b><div>'+sponsorNamesV13(posterPend,'Clear')+'</div></div><div class="mini-panel received"><b>Kickoff Done</b><div>'+sponsorNamesV13(kickoffDone,'None yet')+'</div></div><div class="mini-panel received"><b>Logo Received</b><div>'+sponsorNamesV13(logoDone,'None yet')+'</div></div><div class="mini-panel received"><b>Poster Received</b><div>'+sponsorNamesV13(posterDone,'None yet')+'</div></div></div>';
+  if(!allRows.length)return html+'<div class="empty">'+icon('handshake')+'<p>No sponsor rows yet</p><small>Add a row or paste sponsor records from Excel.</small></div>';
+  html+='<div class="card grid-wrap wide-grid v9-grid-card"><table class="smart-grid sponsor-v9-grid sponsor-v13-grid"><thead><tr><th class="frozen">SOW Status</th><th>Company</th><th>POC</th><th>Email</th><th>Cell</th><th>Sponsorship Type</th><th>Registration Offered</th><th>Registered</th><th>Registration Remaining</th><th>Room Allocation</th><th>Rooms Booked</th><th>Rooms Remaining</th><th>Kickoff Done</th><th>Logo Received</th><th>Poster Received</th><th>Poster Expected</th><th class="row-actions">Delete</th></tr></thead><tbody>';
+  if(!rows.length)html+='<tr><td colspan="17"><div class="empty" style="padding:28px">'+icon('magnifying-glass')+'<p>No matching sponsor rows</p><small>Adjust the search or filters above.</small></div></td></tr>';
+  rows.forEach(function(row){var sp=row.sp,i=row.i,regRemain=(parseFloat(sp.registrationOffered)||0)-(parseFloat(sp.registered)||0),roomRemain=(parseFloat(sp.roomAllocation)||0)-(parseFloat(sp.roomsBooked)||0),cls=(sp.sowStatus==='Declined'?'dr ':'')+(sponsorReadyV13(sp)?'ready-row':''); html+='<tr class="'+cls+'"><td class="frozen">'+first3Cell('setSponsorV6.bind(null,'+i+',\'sowStatus\')',sp.sowStatus,'select',SPONSOR_SOW_STATUSES_V9)+'</td><td>'+first3Cell('setSponsorV6.bind(null,'+i+',\'company\')',sp.company)+'</td><td>'+first3Cell('setSponsorV6.bind(null,'+i+',\'poc\')',sp.poc)+'</td><td>'+first3Cell('setSponsorV6.bind(null,'+i+',\'email\')',sp.email)+'</td><td>'+first3Cell('setSponsorV6.bind(null,'+i+',\'cell\')',sp.cell)+'</td><td>'+first3Cell('setSponsorV6.bind(null,'+i+',\'sponsorshipType\')',sp.sponsorshipType,'select',[''].concat(window.SPONSOR_TIERS||[]))+'</td><td>'+first3Cell('setSponsorV6.bind(null,'+i+',\'registrationOffered\')',sp.registrationOffered,'number')+'</td><td>'+first3Cell('setSponsorV6.bind(null,'+i+',\'registered\')',sp.registered,'number')+'</td><td>'+pill(regRemain,' '+(regRemain<0?'pr':'pg'))+'</td><td>'+first3Cell('setSponsorV6.bind(null,'+i+',\'roomAllocation\')',sp.roomAllocation,'number')+'</td><td>'+first3Cell('setSponsorV6.bind(null,'+i+',\'roomsBooked\')',sp.roomsBooked,'number')+'</td><td>'+pill(roomRemain,' '+(roomRemain<0?'pr':'pg'))+'</td><td>'+first3Cell('setSponsorV6.bind(null,'+i+',\'kickoffDone\')',sp.kickoffDone,'select',['','Yes','No'])+'</td><td>'+first3Cell('setSponsorV6.bind(null,'+i+',\'logoStatus\')',sp.logoStatus,'select',['','Received','Not Received','Requested'])+'</td><td>'+first3Cell('setSponsorV6.bind(null,'+i+',\'posterStatus\')',sp.posterStatus,'select',['','Received','Not Received','Requested'])+'</td><td>'+first3Cell('setSponsorV6.bind(null,'+i+',\'posterExpected\')',sp.posterExpected,'select',['','Yes','No'])+'</td><td class="row-actions">'+(!ro?trashBtnV7('removeSponsorV2('+i+')','Delete sponsor'):'')+'</td></tr>';});
+  html+='</tbody></table></div>';
+  return html;
+};
+(function sponsorV13Styles(){
+  var css='.sponsor-toolbar-v13{align-items:flex-start}.sponsor-toolbar-v13 .spread-left{flex-wrap:wrap}.sponsor-search-v13{min-width:280px}.sponsor-status-board-v13{grid-template-columns:repeat(3,minmax(0,1fr));margin-bottom:14px}.sponsor-status-board-v13 .mini-panel{min-height:78px}.sponsor-status-board-v13 .mini-panel.pending{border-color:#f2d28a;background:linear-gradient(135deg,#fff,#fff8e8)}.sponsor-status-board-v13 .mini-panel.received{border-color:#bfe4c9;background:linear-gradient(135deg,#fff,#effaf3)}.sponsor-status-board-v13 .mini-panel.pending b{color:#8a5a00}.sponsor-status-board-v13 .mini-panel.received b{color:#166534}.sponsor-v13-grid{min-width:1650px}.sponsor-v13-grid th:nth-child(n+13),.sponsor-v13-grid td:nth-child(n+13){min-width:120px}.sponsor-v13-grid tbody tr.ready-row td{background:#f0fdf4!important}.sponsor-v13-grid tbody tr.ready-row:hover td{background:#dcfce7!important}@media(max-width:900px){.sponsor-status-board-v13{grid-template-columns:1fr}.sponsor-search-v13{min-width:100%;width:100%}}';
+  var st=document.createElement('style'); st.textContent=css; document.head.appendChild(st);
+})();
 </script>
 
 
@@ -6169,6 +6270,235 @@ window.rProgramBuilder=function(){
     var before=html.substring(0,idx);
     before=before.replace(/<div class="program-main-toolbar">[\s\S]*?<\/div>\s*$/, '<div class="program-main-toolbar"><span class="program-pill" style="background:#eef6ff">Duration-sized blocks</span><span class="program-pill" style="background:#f0fdf4">Flexible days</span><span class="program-pill" style="background:#fff7ed">Presentation ready</span></div>');
     html=before+renderTimeline(days,sessions)+'</div></div>';
+  }
+  return html;
+};
+})();
+  </script>
+
+<style id="faculty-calls-v24-style">
+.fac-call-summary{display:grid;grid-template-columns:repeat(5,1fr);gap:10px;margin-bottom:14px}
+.fac-call-card{background:linear-gradient(135deg,#fff,#f7fbff);border:1px solid var(--border);border-radius:14px;padding:12px 14px;box-shadow:var(--sh)}
+.fac-call-card span{display:block;font-size:10px;color:var(--text3);font-weight:800;text-transform:uppercase;letter-spacing:.06em}
+.fac-call-card b{display:block;font-size:22px;color:var(--navy);margin-top:3px}
+.fac-call-card.good b{color:var(--green)}.fac-call-card.warn b{color:var(--yellow)}.fac-call-card.bad b{color:var(--red)}.fac-call-card.info b{color:var(--teal-l)}
+.fac-call-toolbar{display:flex;justify-content:space-between;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:12px}
+.fac-call-left,.fac-call-actions{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.fac-call-search{border:1.5px solid var(--border);border-radius:9px;padding:8px 10px;font-size:12px;font-family:var(--font);min-width:260px;background:#fff}
+.fac-call-select{border:1.5px solid var(--border);border-radius:9px;padding:8px 9px;font-size:12px;font-family:var(--font);background:#fff}
+.fac-call-wrap{overflow:auto;border:1px solid #9fb0ca;border-radius:14px;background:#fff;box-shadow:var(--sh);max-height:calc(100vh - 360px)}
+.fac-call-table{border-collapse:separate;border-spacing:0;min-width:2100px;width:100%}
+.fac-call-table th{position:sticky;top:0;z-index:4;background:#e7eef9;border-right:1px solid #9fb0ca;border-bottom:1px solid #9fb0ca;color:#354663;font-size:10px;text-transform:uppercase;letter-spacing:.04em}
+.fac-call-table td{border-right:1px solid #bdcadc;border-bottom:1px solid #bdcadc;background:#fff;font-size:12px}
+.fac-call-table .sticky-col{position:sticky;left:0;z-index:3;background:#fff;font-weight:800;box-shadow:1px 0 0 #bdcadc}
+.fac-call-table th.sticky-col{z-index:5;background:#e7eef9}
+.fac-call-table tr.call-done td{background:#e5f8ec!important}.fac-call-table tr.call-open td{background:#fff8e4!important}.fac-call-table tr.call-risk td{background:#fff1f2!important}
+.fac-call-readonly{padding:7px 8px;white-space:nowrap}
+.fac-call-input,.fac-call-table select{border:1px solid transparent;background:transparent;font-family:var(--font);font-size:12px;color:var(--text);width:100%;padding:5px;border-radius:6px}
+.fac-call-input:focus,.fac-call-table select:focus{border-color:var(--teal-l);background:#fff;outline:none}
+.fac-call-check{width:17px;height:17px}
+.fac-call-alert{background:#fff7ed;border:1px solid #fed7aa;border-radius:14px;padding:12px 14px;margin-bottom:14px;box-shadow:var(--sh)}
+.fac-call-alert h3{margin:0 0 8px;font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:#9a3412}
+.fac-call-doc{display:inline-block;background:#ffedd5;color:#9a3412;border:1px solid #fed7aa;border-radius:999px;padding:4px 9px;margin:2px;font-size:11px;font-weight:800}
+.fac-call-note{background:#eef8ff;border:1px solid #cfe3f8;border-radius:12px;padding:10px 12px;font-size:12px;color:#40506f;line-height:1.45;margin-bottom:12px}
+.fac-call-links{display:grid;gap:7px;max-height:260px;overflow:auto;margin-top:10px}
+.fac-call-links a{display:block;border:1px solid #d7e1ef;border-radius:10px;padding:8px 10px;background:#fff;color:var(--navy);font-size:12px;font-weight:700;text-decoration:none}
+.fac-call-links a:hover{background:#f3f8ff;border-color:var(--teal-l)}
+.fac-call-modal-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+@media(max-width:1100px){.fac-call-summary{grid-template-columns:repeat(2,1fr)}.fac-call-search{min-width:100%;width:100%}.fac-call-modal-grid{grid-template-columns:1fr}}
+</style>
+
+<script id="faculty-calls-v24-script">
+(function(){
+if(window.__facultyCallsV24Loaded)return;
+window.__facultyCallsV24Loaded=true;
+
+var previousFacultyRendererV24 = window.rFaculty;
+window.FAC_CALL_FILTER = window.FAC_CALL_FILTER || {q:'',call:'All',sent:'All'};
+window.FAC_CALL_GMAIL_LINKS = window.FAC_CALL_GMAIL_LINKS || [];
+window.FAC_CALL_EMAIL_TARGETS = window.FAC_CALL_EMAIL_TARGETS || [];
+
+if(typeof window.updateSummitBanner!=='function'){
+  window.updateSummitBanner=function(){
+    var s=(typeof gsd==='function'?gsd(AS):{})||{};
+    var sp=document.getElementById('bstat-sponsors'), fa=document.getElementById('bstat-faculty'), rg=document.getElementById('bstat-reg');
+    if(sp)sp.textContent=(s.sponsors||[]).length;
+    if(fa)fa.textContent=(s.faculty||[]).length;
+    if(rg)rg.textContent=(s.industry||s.virtualReg||[]).length;
+  };
+}
+
+var CALL_STATUSES_V24 = ['','Call Scheduled','Call Done','Awaiting Response','Not Started','Requested for Call'];
+var FAC_STATUSES_V24 = ['Confirmed','Maybe','Declined After Confirmation','Declined','No Response Received'];
+
+function escV24(v){return String(v==null?'':v).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];});}
+function todayV24(){return new Date().toISOString().slice(0,10);}
+function summitNameV24(){var m=SM[AS]||{};return m.full||m.name||'the summit';}
+function facultyNameV24(f){return f.fullName||f.name||[f.firstName,f.lastName].filter(Boolean).join(' ');}
+function ensureFacultyFieldsV24(s){
+  s=s||gsd(AS); if(!s.faculty)s.faculty=[];
+  s.faculty.forEach(function(f){
+    if(!f.fullName && f.name)f.fullName=f.name;
+    if((!f.firstName||!f.lastName) && (f.fullName||f.name)){
+      var p=String(f.fullName||f.name||'').trim().split(/\s+/);
+      if(!f.firstName)f.firstName=p.shift()||'';
+      if(!f.lastName)f.lastName=p.join(' ');
+    }
+    if(f.cell===undefined)f.cell=f.phone||'';
+    if(f.subspecialty===undefined)f.subspecialty=f.indication||'';
+    if(f.callStatus===undefined||f.callStatus==='')f.callStatus='Not Started';
+    if(f.callInviteSent===undefined)f.callInviteSent='';
+    if(f.callLastSent===undefined)f.callLastSent='';
+    if(f.callScheduledDate===undefined)f.callScheduledDate='';
+    if(f.callScheduledTime===undefined)f.callScheduledTime='';
+    if(f.callLink===undefined)f.callLink='';
+    if(f.callNotes===undefined)f.callNotes='';
+  });
+  return s;
+}
+function confirmedCallRowsV24(s){
+  s=ensureFacultyFieldsV24(s);
+  return (s.faculty||[]).map(function(f,i){return {f:f,i:i};}).filter(function(r){return r.f.status==='Confirmed';}).filter(passCallFilterV24).sort(function(a,b){
+    return String(a.f.lastName||'').localeCompare(String(b.f.lastName||''))||String(a.f.firstName||'').localeCompare(String(b.f.firstName||''));
+  });
+}
+function allConfirmedV24(s){return ensureFacultyFieldsV24(s).faculty.filter(function(f){return f.status==='Confirmed';});}
+function callDoneFacultyV24(s){return allConfirmedV24(s).filter(function(f){return f.callStatus==='Call Done';});}
+function declinedAfterOutreachV24(s){
+  return ensureFacultyFieldsV24(s).faculty.filter(function(f){
+    var reached=!!(f.callInviteSent||f.callLastSent||f.callScheduledDate||f.callLink) || ['Call Scheduled','Call Done','Awaiting Response','Requested for Call'].indexOf(f.callStatus)>=0;
+    return reached && (f.status==='Declined'||f.status==='Declined After Confirmation');
+  });
+}
+function passCallFilterV24(row){
+  var f=row.f,q=(window.FAC_CALL_FILTER.q||'').toLowerCase();
+  var blob=[facultyNameV24(f),f.firstName,f.lastName,f.title,f.affiliation,f.city,f.state,f.email,f.cell,f.specialty,f.subspecialty,f.callStatus,f.callNotes].join(' ').toLowerCase();
+  if(q&&blob.indexOf(q)<0)return false;
+  if(window.FAC_CALL_FILTER.call!=='All'&&(f.callStatus||'Not Started')!==window.FAC_CALL_FILTER.call)return false;
+  if(window.FAC_CALL_FILTER.sent==='Needs Invite'&&(f.callInviteSent||f.callLastSent))return false;
+  if(window.FAC_CALL_FILTER.sent==='Invite Sent'&&!(f.callInviteSent||f.callLastSent))return false;
+  if(window.FAC_CALL_FILTER.sent==='Open Calls'&&f.callStatus==='Call Done')return false;
+  if(window.FAC_CALL_FILTER.sent==='Call Done'&&f.callStatus!=='Call Done')return false;
+  return true;
+}
+function callClassV24(st){return st==='Call Done'?'call-done':(st==='Awaiting Response'||st==='Requested for Call'||st==='Not Started'||!st?'call-risk':'call-open');}
+function optionsV24(arr,val){
+  return arr.map(function(x){return '<option value="'+escV24(x)+'" '+(String(val||'')===String(x)?'selected':'')+'>'+escV24(x||'-')+'</option>';}).join('');
+}
+function renderFacultyTabsV24(){
+  return '<div class="fac-v18-tabs"><span class="fac-v18-tab '+(window.FAC_V18_PAGE==='tracker'?'on':'')+'" onclick="setFacultyV18Page(\'tracker\')">Faculty Tracker</span><span class="fac-v18-tab '+(window.FAC_V18_PAGE==='calls'?'on':'')+'" onclick="setFacultyV18Page(\'calls\')">Faculty Calls</span><span class="fac-v18-tab '+(window.FAC_V18_PAGE==='details'?'on':'')+'" onclick="setFacultyV18Page(\'details\')">Faculty Details</span></div>';
+}
+function injectCallsTabV24(html){
+  if(!html||html.indexOf('Faculty Calls')>=0)return html;
+  var marker="onclick=\"setFacultyV18Page('details')\">Faculty Details</span>";
+  var idx=html.indexOf(marker);
+  if(idx<0)return html;
+  var start=html.lastIndexOf('<span',idx);
+  if(start<0)return html;
+  var tab='<span class="fac-v18-tab '+(window.FAC_V18_PAGE==='calls'?'on':'')+'" onclick="setFacultyV18Page(\'calls\')">Faculty Calls</span>';
+  return html.slice(0,start)+tab+html.slice(start);
+}
+function callCellReadV24(v,sticky){return '<td class="'+(sticky?'sticky-col':'')+'"><div class="fac-call-readonly">'+escV24(v||'')+'</div></td>';}
+function callCellInputV24(i,k,v,type){
+  return '<td><input class="fac-call-input" type="'+(type||'text')+'" value="'+escV24(v||'')+'" onchange="updateFacultyCallV24('+i+',\''+k+'\',this.value)"></td>';
+}
+function callCellSelectV24(i,k,v,arr){
+  return '<td><select onchange="updateFacultyCallV24('+i+',\''+k+'\',this.value)">'+optionsV24(arr,v)+'</select></td>';
+}
+function renderDeclinedAlertV24(s){
+  var rows=declinedAfterOutreachV24(s);
+  if(!rows.length)return '';
+  return '<div class="fac-call-alert"><h3>Declined after call outreach</h3><div>'+rows.map(function(f){return '<span class="fac-call-doc">'+escV24(facultyNameV24(f))+'</span>';}).join('')+'</div></div>';
+}
+function renderFacultyCallsV24(s){
+  s=ensureFacultyFieldsV24(s); ssd(AS,s);
+  var confirmed=allConfirmedV24(s), rows=confirmedCallRowsV24(s), done=confirmed.filter(function(f){return f.callStatus==='Call Done';}), scheduled=confirmed.filter(function(f){return f.callStatus==='Call Scheduled';}), awaiting=confirmed.filter(function(f){return f.callStatus==='Awaiting Response';}), needsInvite=confirmed.filter(function(f){return !(f.callInviteSent||f.callLastSent);});
+  var h=renderFacultyTabsV24();
+  h+='<div class="fac-call-note"><strong>Faculty Calls pulls only Confirmed faculty from Faculty Tracker.</strong> When Call Status becomes Call Done, that faculty member appears in Faculty Details. If their status changes away from Confirmed, they leave this call list automatically.</div>';
+  h+=renderDeclinedAlertV24(s);
+  h+='<div class="fac-call-summary"><div class="fac-call-card info"><span>Confirmed in Calls</span><b>'+confirmed.length+'</b></div><div class="fac-call-card warn"><span>Needs Invite</span><b>'+needsInvite.length+'</b></div><div class="fac-call-card warn"><span>Call Scheduled</span><b>'+scheduled.length+'</b></div><div class="fac-call-card bad"><span>Awaiting Response</span><b>'+awaiting.length+'</b></div><div class="fac-call-card good"><span>Call Done</span><b>'+done.length+'</b></div></div>';
+  h+='<div class="fac-call-toolbar"><div class="fac-call-left"><input class="fac-call-search" placeholder="Search calls, faculty, email..." value="'+escV24(window.FAC_CALL_FILTER.q)+'" oninput="FAC_CALL_FILTER.q=this.value;renderTab(\'faculty\')"><select class="fac-call-select" onchange="FAC_CALL_FILTER.call=this.value;renderTab(\'faculty\')"><option>All</option>'+CALL_STATUSES_V24.filter(Boolean).map(function(x){return '<option '+(window.FAC_CALL_FILTER.call===x?'selected':'')+'>'+x+'</option>';}).join('')+'</select><select class="fac-call-select" onchange="FAC_CALL_FILTER.sent=this.value;renderTab(\'faculty\')"><option>All</option><option '+(window.FAC_CALL_FILTER.sent==='Needs Invite'?'selected':'')+'>Needs Invite</option><option '+(window.FAC_CALL_FILTER.sent==='Invite Sent'?'selected':'')+'>Invite Sent</option><option '+(window.FAC_CALL_FILTER.sent==='Open Calls'?'selected':'')+'>Open Calls</option><option '+(window.FAC_CALL_FILTER.sent==='Call Done'?'selected':'')+'>Call Done</option></select></div><div class="fac-call-actions"><button class="btn" onclick="selectAllFacultyCallsV24(true)"><i class="fa-solid fa-check-double"></i> Select shown</button><button class="btn" onclick="selectAllFacultyCallsV24(false)">Clear</button><button class="btn btn-n" onclick="showFacultyCallEmailComposerV24()"><i class="fa-solid fa-envelope"></i> Gmail blast</button></div></div>';
+  if(!confirmed.length)return h+'<div class="empty"><i class="fa-solid fa-phone"></i><p>No confirmed faculty yet</p><small>Mark faculty as Confirmed in Faculty Tracker to populate this call workflow.</small></div>';
+  h+='<div class="fac-call-wrap"><table class="fac-call-table"><thead><tr><th><input type="checkbox" onclick="selectAllFacultyCallsV24(this.checked)"></th><th class="sticky-col">Full Name</th><th>First</th><th>Last</th><th>Title</th><th>Affiliation</th><th>City</th><th>State</th><th>Email</th><th>Cell Number</th><th>Specialty</th><th>Subspecialty</th><th>Faculty Status</th><th>Call Status</th><th>Call Date</th><th>Call Time</th><th>Call Link</th><th>Invite Sent</th><th>Last Sent</th><th>Call Notes</th></tr></thead><tbody>';
+  if(!rows.length)h+='<tr><td colspan="20"><div class="empty" style="padding:28px"><i class="fa-solid fa-magnifying-glass"></i><p>No matching confirmed faculty calls</p><small>Adjust the filters above.</small></div></td></tr>';
+  rows.forEach(function(row){
+    var f=row.f,i=row.i;
+    h+='<tr class="'+callClassV24(f.callStatus)+'"><td><input class="fac-call-check faculty-call-cb" type="checkbox" value="'+i+'"></td>'+callCellReadV24(facultyNameV24(f),true)+callCellReadV24(f.firstName)+callCellReadV24(f.lastName)+callCellReadV24(f.title)+callCellReadV24(f.affiliation)+callCellReadV24(f.city)+callCellReadV24(f.state)+callCellReadV24(f.email)+callCellReadV24(f.cell)+callCellReadV24(f.specialty)+callCellReadV24(f.subspecialty)+callCellSelectV24(i,'status',f.status,FAC_STATUSES_V24)+callCellSelectV24(i,'callStatus',f.callStatus||'Not Started',CALL_STATUSES_V24)+callCellInputV24(i,'callScheduledDate',f.callScheduledDate,'date')+callCellInputV24(i,'callScheduledTime',f.callScheduledTime,'time')+callCellInputV24(i,'callLink',f.callLink,'url')+callCellInputV24(i,'callInviteSent',f.callInviteSent,'date')+callCellInputV24(i,'callLastSent',f.callLastSent,'date')+callCellInputV24(i,'callNotes',f.callNotes)+'</tr>';
+  });
+  h+='</tbody></table></div>';
+  return h;
+}
+window.updateFacultyCallV24=function(i,k,v){
+  var s=ensureFacultyFieldsV24(gsd(AS)); if(!s.faculty[i])return;
+  s.faculty[i][k]=String(v||'').trim();
+  if(k==='callStatus'&&s.faculty[i][k]==='Call Done'&&!s.faculty[i].callScheduledDate)s.faculty[i].callScheduledDate=todayV24();
+  if(k==='status'&&s.faculty[i][k]!=='Confirmed'&&!s.faculty[i].callNotes)s.faculty[i].callNotes='Status changed after call outreach.';
+  ssd(AS,s); renderTab('faculty'); updateSummitBanner();
+};
+window.selectAllFacultyCallsV24=function(checked){
+  document.querySelectorAll('.faculty-call-cb').forEach(function(cb){cb.checked=!!checked;});
+};
+function selectedCallIndexesV24(){
+  return Array.from(document.querySelectorAll('.faculty-call-cb:checked')).map(function(cb){return parseInt(cb.value,10);}).filter(function(i){return !isNaN(i);});
+}
+function defaultCallBodyV24(){
+  return 'Dear {{First Name}},\\n\\nWe are coordinating faculty calls for {{Summit}}. Please find the proposed call details below:\\n\\n{{Call Details}}\\n{{Call Link}}\\n\\nPlease let us know if this time works for you, or share alternate availability.\\n\\nBest regards,\\n{{Sender}}';
+}
+window.showFacultyCallEmailComposerV24=function(){
+  var idxs=selectedCallIndexesV24();
+  if(!idxs.length){alert('Select at least one confirmed faculty member first.');return;}
+  window.FAC_CALL_EMAIL_TARGETS=idxs;
+  var h='<h2><i class="fa-solid fa-envelope"></i> Gmail Faculty Call Blast</h2><div class="ib"><strong>Personalized Gmail drafts.</strong> This creates one Gmail compose link per selected faculty member using your Gmail account. No password or Gmail data is stored in this file.</div>';
+  h+='<div class="fac-call-modal-grid"><div class="fld"><label>Sender name</label><input id="facCallSender" value="'+escV24((CU&&CU.name)||'DAVA Operations')+'"></div><div class="fld"><label>Call details</label><input id="facCallDetails" placeholder="Date/time or scheduling note"></div></div>';
+  h+='<div class="fld"><label>Call link</label><input id="facCallLink" placeholder="Google Meet / Zoom / Teams link"></div>';
+  h+='<div class="fld"><label>Subject</label><input id="facCallSubject" value="Faculty call scheduling - {{Summit}}"></div>';
+  h+='<div class="fld"><label>Email body</label><textarea id="facCallBody" style="min-height:220px;font-family:var(--font)">'+escV24(defaultCallBodyV24())+'</textarea></div>';
+  h+='<div class="ib">Available placeholders: {{Full Name}}, {{First Name}}, {{Last Name}}, {{Title}}, {{Affiliation}}, {{Summit}}, {{Call Details}}, {{Call Link}}, {{Sender}}.</div>';
+  h+='<div class="ma"><button class="btn" onclick="closeM()">Cancel</button><button class="btn btn-n" onclick="createFacultyCallGmailDraftsV24()">Generate Gmail drafts</button></div>';
+  openM(h);
+};
+function personalizeV24(txt,f,extras){
+  var map={
+    'Full Name':facultyNameV24(f),'First Name':f.firstName||facultyNameV24(f).split(' ')[0]||'','Last Name':f.lastName||'',
+    'Title':f.title||'','Affiliation':f.affiliation||'','Summit':summitNameV24(),'Call Details':extras.details||'','Call Link':extras.link||'','Sender':extras.sender||''
+  };
+  return String(txt||'').replace(/\{\{([^}]+)\}\}/g,function(_,k){return map[String(k).trim()]||'';});
+}
+window.createFacultyCallGmailDraftsV24=function(){
+  var s=ensureFacultyFieldsV24(gsd(AS)), idxs=window.FAC_CALL_EMAIL_TARGETS||[], sender=document.getElementById('facCallSender').value||'', details=document.getElementById('facCallDetails').value||'', link=document.getElementById('facCallLink').value||'', subj=document.getElementById('facCallSubject').value||'', body=document.getElementById('facCallBody').value||'';
+  var links=[], missing=[];
+  idxs.forEach(function(i){
+    var f=s.faculty[i]; if(!f)return;
+    if(!f.email){missing.push(facultyNameV24(f));return;}
+    var extras={sender:sender,details:details,link:link};
+    var su=personalizeV24(subj,f,extras), bo=personalizeV24(body,f,extras);
+    links.push({name:facultyNameV24(f),url:'https://mail.google.com/mail/?view=cm&fs=1&to='+encodeURIComponent(f.email)+'&su='+encodeURIComponent(su)+'&body='+encodeURIComponent(bo)});
+    f.callInviteSent=f.callInviteSent||todayV24();
+    f.callLastSent=todayV24();
+    if(link&&!f.callLink)f.callLink=link;
+    if(details&&!f.callNotes)f.callNotes=details;
+    if(!f.callStatus||f.callStatus==='Not Started')f.callStatus='Requested for Call';
+  });
+  ssd(AS,s); window.FAC_CALL_GMAIL_LINKS=links;
+  var h='<h2><i class="fa-brands fa-google"></i> Gmail drafts ready</h2>';
+  h+='<div class="ib"><strong>'+links.length+' personalized draft link(s) created.</strong> Open each link while signed into the Gmail account you want to send from. Selected faculty have been marked as invite sent today.</div>';
+  if(missing.length)h+='<div class="fac-call-alert"><h3>Missing email</h3><div>'+missing.map(function(n){return '<span class="fac-call-doc">'+escV24(n)+'</span>';}).join('')+'</div></div>';
+  h+='<div class="fac-call-links">'+links.map(function(x){return '<a href="'+x.url+'" target="_blank" rel="noopener">Open Gmail draft - '+escV24(x.name)+'</a>';}).join('')+'</div>';
+  h+='<div class="ma"><button class="btn" onclick="closeM();renderTab(\'faculty\')">Done</button></div>';
+  openM(h);
+};
+
+window.rFaculty = rFaculty = function(s){
+  s=ensureFacultyFieldsV24(s||gsd(AS));
+  if(window.FAC_V18_PAGE==='calls')return renderFacultyCallsV24(s);
+  var renderSource=s;
+  if(window.FAC_V18_PAGE==='details'){
+    renderSource=Object.assign({},s,{faculty:callDoneFacultyV24(s).map(function(f){return Object.assign({},f);})});
+  }
+  var html=previousFacultyRendererV24?previousFacultyRendererV24(renderSource):'';
+  html=injectCallsTabV24(html);
+  if(window.FAC_V18_PAGE==='details'){
+    html=html.replace('<div class="fac-v18-tabs">','<div class="fac-call-note"><strong>Faculty Details shows only confirmed faculty whose Call Status is Call Done.</strong> Complete calls in Faculty Calls to move people into this details workspace.</div><div class="fac-v18-tabs">');
   }
   return html;
 };
