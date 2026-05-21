@@ -1,3 +1,4 @@
+
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -6494,11 +6495,573 @@ window.rFaculty = rFaculty = function(s){
     renderSource=Object.assign({},s,{faculty:callDoneFacultyV24(s).map(function(f){return Object.assign({},f);})});
   }
   var html=previousFacultyRendererV24?previousFacultyRendererV24(renderSource):'';
+  if(window.FAC_V18_PAGE==='details')ssd(AS,s);
   html=injectCallsTabV24(html);
   if(window.FAC_V18_PAGE==='details'){
     html=html.replace('<div class="fac-v18-tabs">','<div class="fac-call-note"><strong>Faculty Details shows only confirmed faculty whose Call Status is Call Done.</strong> Complete calls in Faculty Calls to move people into this details workspace.</div><div class="fac-v18-tabs">');
   }
   return html;
+};
+})();
+</script>
+
+<style id="faculty-v25-bulk-filter-style">
+.fac-excel-filter-row th{position:sticky;top:31px!important;z-index:4;background:#f8fbff!important;padding:5px 6px!important}
+.fac-excel-filter-row th.sticky-col{z-index:6;background:#f8fbff!important}
+.fac-excel-filter-row input,.fac-excel-filter-row select{width:100%;min-width:96px;border:1px solid #cfd9e8;border-radius:7px;background:#fff;padding:5px 7px;font-family:var(--font);font-size:11px;color:var(--text)}
+.fac-excel-filter-row input:focus,.fac-excel-filter-row select:focus{outline:none;border-color:var(--teal-l);box-shadow:0 0 0 2px rgba(42,157,160,.12)}
+.fac-excel-count-v25{display:inline-flex;align-items:center;gap:5px;border:1px solid #d6e3f4;background:#f7fbff;color:#41516f;border-radius:999px;padding:7px 10px;font-size:11px;font-weight:800;white-space:nowrap}
+.fac-bulk-grid-v25{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.fac-bulk-template-v25{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:8px 0 10px}
+.fac-bulk-preview-v25{max-height:150px;overflow:auto;border:1px solid #d7e1ef;border-radius:10px;background:#fbfdff;padding:8px;font-size:11px;color:var(--text2)}
+.fac-bulk-preview-v25 b{color:var(--navy)}
+@media(max-width:1100px){.fac-bulk-grid-v25{grid-template-columns:1fr}.fac-excel-filter-row input,.fac-excel-filter-row select{min-width:86px}}
+</style>
+
+<script id="faculty-v25-bulk-filter-script">
+(function(){
+if(window.__facultyV25BulkFilterLoaded)return;
+window.__facultyV25BulkFilterLoaded=true;
+
+var previousFacultyRendererV25=window.rFaculty;
+var STATUS_OPTIONS_V25=['','Confirmed','Maybe','Declined After Confirmation','Declined','No Response Received'];
+var ORDER_V25=['fullName','firstName','lastName','title','affiliation','city','state','email','cell','specialty','subspecialty','status','firstEmailSent','lastEmailSent','followupDate','notes','callStatus'];
+window.FAC_EXCEL_FILTERS_V25=window.FAC_EXCEL_FILTERS_V25||{
+  fullName:'',firstName:'',lastName:'',title:'',affiliation:'',city:'',state:'',email:'',cell:'',
+  specialty:'',subspecialty:'',status:'All',firstEmailSent:'',lastEmailSent:'',followupDate:'',notes:''
+};
+
+function escV25(v){
+  return String(v==null?'':v).replace(/[&<>"']/g,function(c){
+    return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];
+  });
+}
+function normV25(v){return String(v||'').toLowerCase().replace(/[^a-z0-9]+/g,'').trim();}
+function splitNameV25(name){
+  var p=String(name||'').trim().split(/\s+/).filter(Boolean);
+  return {first:p[0]||'',last:p.length>1?p.slice(1).join(' '):''};
+}
+function csvLineV25(line){
+  var out=[],cur='',q=false;
+  for(var i=0;i<line.length;i++){
+    var ch=line[i],next=line[i+1];
+    if(ch==='"'&&q&&next==='"'){cur+='"';i++;continue;}
+    if(ch==='"'){q=!q;continue;}
+    if(ch===','&&!q){out.push(cur);cur='';continue;}
+    cur+=ch;
+  }
+  out.push(cur);
+  return out.map(function(x){return x.trim();});
+}
+function rowsFromTextV25(text){
+  text=String(text||'').replace(/\r/g,'').trim();
+  if(!text)return [];
+  var lines=text.split('\n').filter(function(line){return line.trim();});
+  var tabbed=text.indexOf('\t')>-1;
+  return lines.map(function(line){return tabbed?line.split('\t').map(function(x){return x.trim();}):csvLineV25(line);});
+}
+function headerMapV25(row){
+  var aliases={
+    fullName:['fullname','name','facultyname','doctorname'],
+    firstName:['firstname','first'],
+    lastName:['lastname','last'],
+    title:['title','degree'],
+    affiliation:['affiliation','institution','organization','organisation','company'],
+    city:['city'],
+    state:['state'],
+    email:['email','emailaddress'],
+    cell:['cell','cellnumber','phone','phonenumber','mobile','mobilenumber'],
+    specialty:['specialty','speciality'],
+    subspecialty:['subspecialty','subspeciality','subspeciality','subspecialtyindication','indication'],
+    status:['status','facultystatus'],
+    firstEmailSent:['firstemailsent','firstemail'],
+    lastEmailSent:['lastemailsent','lastemail'],
+    followupDate:['followupdate','followupdate','followup','followupdate'],
+    notes:['notes','note'],
+    callStatus:['callstatus','call']
+  };
+  var map={},hits=0;
+  row.forEach(function(h,idx){
+    var n=normV25(h);
+    Object.keys(aliases).forEach(function(k){
+      if(map[k]===undefined&&aliases[k].indexOf(n)>-1){map[k]=idx;hits++;}
+    });
+  });
+  return hits>=2?map:null;
+}
+function valueFromRowV25(row,map,key,pos){
+  var idx=map&&map[key]!==undefined?map[key]:pos;
+  return row[idx]!==undefined?String(row[idx]).trim():'';
+}
+function parseFacultyBulkV25(text,defaultStatus){
+  var raw=rowsFromTextV25(text);
+  if(!raw.length)return [];
+  var map=headerMapV25(raw[0]);
+  if(map)raw=raw.slice(1);
+  var rows=[];
+  raw.forEach(function(cols){
+    var f={
+      fullName:valueFromRowV25(cols,map,'fullName',0),
+      firstName:valueFromRowV25(cols,map,'firstName',1),
+      lastName:valueFromRowV25(cols,map,'lastName',2),
+      title:valueFromRowV25(cols,map,'title',3),
+      affiliation:valueFromRowV25(cols,map,'affiliation',4),
+      city:valueFromRowV25(cols,map,'city',5),
+      state:valueFromRowV25(cols,map,'state',6),
+      email:valueFromRowV25(cols,map,'email',7),
+      cell:valueFromRowV25(cols,map,'cell',8),
+      specialty:valueFromRowV25(cols,map,'specialty',9),
+      subspecialty:valueFromRowV25(cols,map,'subspecialty',10),
+      status:valueFromRowV25(cols,map,'status',11),
+      firstEmailSent:valueFromRowV25(cols,map,'firstEmailSent',12),
+      lastEmailSent:valueFromRowV25(cols,map,'lastEmailSent',13),
+      followupDate:valueFromRowV25(cols,map,'followupDate',14),
+      notes:valueFromRowV25(cols,map,'notes',15),
+      callStatus:valueFromRowV25(cols,map,'callStatus',16),
+      slidesRequested:'',slidesStatus:'',detailNotes:'',talks:[]
+    };
+    if(defaultStatus&&defaultStatus!=='Keep row value'&&!f.status)f.status=defaultStatus;
+    if(!f.fullName)f.fullName=[f.firstName,f.lastName].filter(Boolean).join(' ');
+    if(f.fullName&&(!f.firstName||!f.lastName)){
+      var sp=splitNameV25(f.fullName);
+      if(!f.firstName)f.firstName=sp.first;
+      if(!f.lastName)f.lastName=sp.last;
+    }
+    f.name=f.fullName;
+    f.state=String(f.state||'').toUpperCase();
+    if(Object.keys(f).some(function(k){return k!=='talks'&&String(f[k]||'').trim();}))rows.push(f);
+  });
+  return rows;
+}
+function templateColumnsV25(){
+  return ['Full Name','First Name','Last Name','Title','Affiliation','City','State','Email','Cell Number','Specialty','Subspecialty','Status','First Email Sent','Last Email Sent','Follow-up Date','Notes','Call Status'];
+}
+window.downloadFacultyBulkTemplateV25=function(){
+  var csv=templateColumnsV25().join(',')+'\n';
+  var blob=new Blob([csv],{type:'text/csv'});
+  var url=URL.createObjectURL(blob);
+  var a=document.createElement('a');
+  a.href=url;
+  a.download='faculty-bulk-upload-template.csv';
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  setTimeout(function(){URL.revokeObjectURL(url);},500);
+};
+window.loadFacultyBulkFileV25=function(input){
+  var file=input.files&&input.files[0];
+  if(!file)return;
+  var reader=new FileReader();
+  reader.onload=function(){
+    var el=document.getElementById('facBulkTextV25');
+    if(el)el.value=reader.result||'';
+    window.previewFacultyBulkV25();
+  };
+  reader.readAsText(file);
+};
+window.previewFacultyBulkV25=function(){
+  var text=(document.getElementById('facBulkTextV25')||{}).value||'';
+  var def=(document.getElementById('facBulkDefaultStatusV25')||{}).value||'Keep row value';
+  var rows=parseFacultyBulkV25(text,def);
+  var el=document.getElementById('facBulkPreviewV25');
+  if(!el)return;
+  if(!rows.length){el.innerHTML='No rows detected yet.';return;}
+  el.innerHTML='<b>'+rows.length+' row(s) ready.</b><br>'+rows.slice(0,5).map(function(f){
+    return escV25(f.fullName||[f.firstName,f.lastName].filter(Boolean).join(' ')||'(Unnamed)')+' - '+escV25(f.affiliation||'')+' - '+escV25(f.status||'No status');
+  }).join('<br>');
+};
+window.showFacultyBulkUploadV25=function(){
+  var sample=templateColumnsV25().join('\t');
+  var h='<h2><i class="fa-solid fa-file-import"></i> Bulk Upload Faculty</h2>';
+  h+='<div class="fac-bulk-grid-v25"><div class="fld"><label>CSV or copied Excel rows</label><input type="file" accept=".csv,.txt" onchange="loadFacultyBulkFileV25(this)"></div><div class="fld"><label>Default status for blank rows</label><select id="facBulkDefaultStatusV25" onchange="previewFacultyBulkV25()"><option>Keep row value</option><option>Confirmed</option><option>Maybe</option><option>Declined After Confirmation</option><option>Declined</option><option>No Response Received</option></select></div></div>';
+  h+='<div class="fac-bulk-template-v25"><button class="btn" onclick="downloadFacultyBulkTemplateV25()"><i class="fa-solid fa-download"></i> Template</button><span class="fac-excel-count-v25"><i class="fa-solid fa-table"></i> Paste from Excel or upload CSV</span></div>';
+  h+='<div class="fld"><label>Rows</label><textarea id="facBulkTextV25" style="min-height:230px;font-family:Consolas,monospace" oninput="previewFacultyBulkV25()" placeholder="'+escV25(sample)+'"></textarea></div>';
+  h+='<div id="facBulkPreviewV25" class="fac-bulk-preview-v25">No rows detected yet.</div>';
+  h+='<div class="ma"><button class="btn" onclick="closeM()">Cancel</button><button class="btn btn-n" onclick="saveFacultyBulkUploadV25()"><i class="fa-solid fa-file-import"></i> Import rows</button></div>';
+  openM(h);
+};
+window.saveFacultyBulkUploadV25=function(){
+  var text=(document.getElementById('facBulkTextV25')||{}).value||'';
+  var def=(document.getElementById('facBulkDefaultStatusV25')||{}).value||'Keep row value';
+  var rows=parseFacultyBulkV25(text,def);
+  if(!rows.length){alert('No faculty rows found. Paste Excel rows or upload a CSV file first.');return;}
+  var s=gsd(AS);
+  if(!Array.isArray(s.faculty))s.faculty=[];
+  Array.prototype.push.apply(s.faculty,rows);
+  ssd(AS,s);
+  closeM();
+  renderTab('faculty');
+  if(typeof updateSummitBanner==='function')updateSummitBanner();
+};
+
+function filterInputV25(key,placeholder){
+  var val=(window.FAC_EXCEL_FILTERS_V25[key]||'');
+  return '<input value="'+escV25(val)+'" placeholder="'+escV25(placeholder||'Filter')+'" oninput="FAC_EXCEL_FILTERS_V25.'+key+'=this.value;applyFacultyExcelFiltersNowV25()">';
+}
+function statusFilterV25(){
+  var val=window.FAC_EXCEL_FILTERS_V25.status||'All';
+  var opts=['All'].concat(STATUS_OPTIONS_V25.filter(Boolean));
+  return '<select onchange="FAC_EXCEL_FILTERS_V25.status=this.value;applyFacultyExcelFiltersNowV25()">'+opts.map(function(x){return '<option value="'+escV25(x)+'" '+(x===val?'selected':'')+'>'+escV25(x)+'</option>';}).join('')+'</select>';
+}
+function injectBulkButtonV25(html){
+  if(!html||html.indexOf('showFacultyBulkUploadV25')>-1)return html;
+  var add='<button class="btn btn-n" onclick="addFacultyV18()"><i class="fa-solid fa-plus"></i> Add row</button>';
+  var repl=add+'<button class="btn" onclick="showFacultyBulkUploadV25()"><i class="fa-solid fa-file-import"></i> Bulk upload</button>';
+  html=html.replace(add,repl);
+  var sort='<button class="btn" onclick="sortFacultyV18()"><i class="fa-solid fa-arrow-down-wide-short"></i> Sort</button>';
+  var count='<span class="fac-excel-count-v25"><i class="fa-solid fa-filter"></i> <span id="facExcelCountV25">Column filters ready</span></span>';
+  return html.replace(sort,sort+'<button class="btn" onclick="resetFacultyExcelFiltersV25()"><i class="fa-solid fa-filter-circle-xmark"></i> Clear filters</button>'+count);
+}
+function injectExcelFiltersV25(html){
+  if(!html||html.indexOf('fac-excel-filter-row')>-1)return html;
+  var tableIdx=html.indexOf('fac-v18-table');
+  if(tableIdx<0)return html;
+  var marker='</tr></thead><tbody>';
+  var idx=html.indexOf(marker,tableIdx);
+  if(idx<0)return html;
+  var row='<tr class="fac-excel-filter-row">'
+    +'<th class="sticky-col">'+filterInputV25('fullName','Name')+'</th>'
+    +'<th>'+filterInputV25('firstName','First')+'</th>'
+    +'<th>'+filterInputV25('lastName','Last')+'</th>'
+    +'<th>'+filterInputV25('title','Title')+'</th>'
+    +'<th>'+filterInputV25('affiliation','Affiliation')+'</th>'
+    +'<th>'+filterInputV25('city','City')+'</th>'
+    +'<th>'+filterInputV25('state','State')+'</th>'
+    +'<th>'+filterInputV25('email','Email')+'</th>'
+    +'<th>'+filterInputV25('cell','Cell')+'</th>'
+    +'<th>'+filterInputV25('specialty','Specialty')+'</th>'
+    +'<th>'+filterInputV25('subspecialty','Subspecialty')+'</th>'
+    +'<th>'+statusFilterV25()+'</th>'
+    +'<th>'+filterInputV25('firstEmailSent','Date')+'</th>'
+    +'<th>'+filterInputV25('lastEmailSent','Date')+'</th>'
+    +'<th>'+filterInputV25('followupDate','Date')+'</th>'
+    +'<th>'+filterInputV25('notes','Notes')+'</th>'
+    +'<th></th></tr>';
+  return html.slice(0,idx)+row+html.slice(idx);
+}
+function cellTextV25(row,idx){
+  if(!row.cells||!row.cells[idx])return '';
+  var el=row.cells[idx];
+  var input=el.querySelector('input,select,textarea');
+  if(input)return String(input.value||'').toLowerCase();
+  return String(el.textContent||'').toLowerCase();
+}
+window.applyFacultyExcelFiltersNowV25=function(){
+  var table=document.querySelector('.fac-v18-table');
+  if(!table)return;
+  var filters=window.FAC_EXCEL_FILTERS_V25||{};
+  var keys=['fullName','firstName','lastName','title','affiliation','city','state','email','cell','specialty','subspecialty','status','firstEmailSent','lastEmailSent','followupDate','notes'];
+  var shown=0,total=0;
+  Array.from(table.querySelectorAll('tbody tr')).forEach(function(row){
+    if(row.cells.length<16)return;
+    total++;
+    var ok=true;
+    keys.forEach(function(key,idx){
+      if(!ok)return;
+      var filter=String(filters[key]||'').toLowerCase();
+      if(key==='status'){
+        if((filters.status||'All')!=='All'&&cellTextV25(row,idx)!==String(filters.status||'').toLowerCase())ok=false;
+      }else if(filter&&cellTextV25(row,idx).indexOf(filter)<0){
+        ok=false;
+      }
+    });
+    row.style.display=ok?'':'none';
+    if(ok)shown++;
+  });
+  var count=document.getElementById('facExcelCountV25');
+  if(count)count.textContent='Showing '+shown+' of '+total;
+};
+window.resetFacultyExcelFiltersV25=function(){
+  window.FAC_EXCEL_FILTERS_V25={fullName:'',firstName:'',lastName:'',title:'',affiliation:'',city:'',state:'',email:'',cell:'',specialty:'',subspecialty:'',status:'All',firstEmailSent:'',lastEmailSent:'',followupDate:'',notes:''};
+  renderTab('faculty');
+};
+
+window.rFaculty = rFaculty = function(s){
+  var html=previousFacultyRendererV25?previousFacultyRendererV25(s):'';
+  if(window.FAC_V18_PAGE==='tracker'){
+    html=injectBulkButtonV25(html);
+    html=injectExcelFiltersV25(html);
+    setTimeout(function(){applyFacultyExcelFiltersNowV25();},0);
+  }
+  return html;
+};
+})();
+</script>
+
+<style id="ancillary-v26-control-style">
+.anc-v26-top{margin-bottom:14px}
+.anc-v26-metrics{border:1px solid #cfdbea;border-radius:14px;background:#fff;box-shadow:var(--sh);overflow:hidden;margin-bottom:12px}
+.anc-v26-metrics-head{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:12px 14px;background:linear-gradient(135deg,#10233f,#1f3f63);color:#fff}
+.anc-v26-metrics-head h3{margin:0;font-size:12px;text-transform:uppercase;letter-spacing:.07em;color:#fff}
+.anc-v26-metrics-head span{font-size:11px;color:rgba(255,255,255,.72);font-weight:700}
+.anc-v26-toggle{border:1px solid rgba(255,255,255,.24);background:rgba(255,255,255,.1);color:#fff;border-radius:9px;padding:7px 10px;font-size:11px;font-weight:800;cursor:pointer}
+.anc-v26-body{padding:12px 14px}
+.anc-v26-kpis{display:grid;grid-template-columns:repeat(5,minmax(130px,1fr));gap:10px;margin-bottom:12px}
+.anc-v26-kpi{border:1px solid #d6e2f0;border-radius:11px;padding:10px 11px;background:#f8fbff}
+.anc-v26-kpi span{display:block;font-size:9px;text-transform:uppercase;letter-spacing:.06em;color:#65728d;font-weight:900}
+.anc-v26-kpi b{display:block;font-size:20px;color:#15233d;margin-top:3px}
+.anc-v26-kpi.good{background:#dcfce7;border-color:#86efac}.anc-v26-kpi.warn{background:#fef3c7;border-color:#facc15}.anc-v26-kpi.bad{background:#fee2e2;border-color:#fca5a5}.anc-v26-kpi.info{background:#dff7ff;border-color:#93dff1}
+.anc-v26-compact{display:flex;gap:8px;flex-wrap:wrap}
+.anc-v26-pill{display:inline-flex;align-items:center;gap:6px;border-radius:999px;padding:6px 10px;font-size:11px;font-weight:900;color:#fff;background:#20345a}
+.anc-v26-pill.good{background:#166534}.anc-v26-pill.warn{background:#a16207}.anc-v26-pill.bad{background:#991b1b}.anc-v26-pill.info{background:#0f766e}
+.anc-v26-company-board{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:10px}
+.anc-v26-company-card{border:1px solid #d6e2f0;border-radius:12px;background:#fff;overflow:hidden}
+.anc-v26-company-head{height:9px;background:var(--anc-color,#2563eb)}
+.anc-v26-company-body{padding:10px 11px}
+.anc-v26-company-title{display:flex;align-items:center;justify-content:space-between;gap:8px;font-size:12px;font-weight:900;color:#182844;margin-bottom:8px}
+.anc-v26-dot{width:13px;height:13px;border-radius:50%;background:var(--anc-color,#2563eb);border:2px solid #fff;box-shadow:0 0 0 1px rgba(0,0,0,.16);flex-shrink:0}
+.anc-v26-counts{display:grid;grid-template-columns:repeat(3,1fr);gap:5px}
+.anc-v26-count{border-radius:8px;padding:6px 5px;text-align:center;color:#fff;font-size:10px;font-weight:900}
+.anc-v26-count b{display:block;font-size:16px;line-height:1}.anc-v26-count.ok{background:#166534}.anc-v26-count.pending{background:#a16207}.anc-v26-count.no{background:#991b1b}
+.anc-v26-color-grid{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px;border-top:1px solid #e2e8f0;padding-top:12px}
+.anc-v26-color-card{display:flex;align-items:center;gap:7px;border:1px solid #d6e2f0;border-radius:999px;padding:5px 8px;background:#f8fbff;font-size:11px;font-weight:800;color:#33415f}
+.anc-v26-color-card input[type=color]{width:26px;height:24px;padding:0;border:0;background:transparent;cursor:pointer}
+.anc-v26-toolbar{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;background:#f7fbff;border:1px solid #d6e2f0;border-radius:13px;padding:10px 12px;margin-bottom:12px}
+.anc-v26-left,.anc-v26-actions{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.anc-v26-toolbar input,.anc-v26-toolbar select{border:1.5px solid #cfdbea;border-radius:9px;padding:8px 9px;font-size:12px;font-family:var(--font);background:#fff;color:#1f2f4d}
+.anc-v26-search{min-width:260px}
+.anc-v26-note{border:1px solid #cfe3f8;background:#eff8ff;border-radius:12px;padding:10px 12px;color:#40506f;font-size:12px;font-weight:700;margin-bottom:12px}
+.anc-v26-session-grid{margin-bottom:12px}
+.anc-v26-table{min-width:1500px}
+.anc-v26-matrix{min-width:1800px}
+.anc-v26-table th{vertical-align:top}
+.anc-v26-company-th{box-shadow:inset 0 5px 0 var(--anc-color,#2563eb)!important;min-width:190px}
+.anc-v26-company-name{display:flex;align-items:center;gap:6px;justify-content:center;font-weight:900}
+.anc-v26-countline{display:grid;grid-template-columns:repeat(3,1fr);gap:3px;margin-top:6px}
+.anc-v26-countline span{border-radius:5px;padding:3px 4px;color:#fff;font-size:9px;font-weight:900;line-height:1.1}
+.anc-v26-countline .ok{background:#166534}.anc-v26-countline .pending{background:#a16207}.anc-v26-countline .no{background:#991b1b}
+.anc-v26-company-cell{box-shadow:inset 0 4px 0 var(--anc-color,#2563eb)!important;min-width:190px}
+.anc-v26-cell-stack{display:grid;gap:5px}
+.anc-v26-status-pill{display:inline-flex;align-items:center;justify-content:center;border-radius:999px;padding:4px 8px;font-size:10px;font-weight:900;color:#fff;white-space:nowrap}
+.anc-v26-status-pill.confirmed{background:#166534}.anc-v26-status-pill.pending{background:#a16207}.anc-v26-status-pill.declined{background:#991b1b}.anc-v26-status-pill.neutral{background:#475569}
+.anc-v26-row-confirmed td{background:#14532d!important;color:#fff!important}
+.anc-v26-row-pending td{background:#854d0e!important;color:#fff!important}
+.anc-v26-row-declined td{background:#7f1d1d!important;color:#fff!important}
+.anc-v26-row-neutral td{background:#334155!important;color:#fff!important}
+.anc-v26-row-confirmed td.frozen,.anc-v26-row-pending td.frozen,.anc-v26-row-declined td.frozen,.anc-v26-row-neutral td.frozen{background:inherit!important;color:#fff!important}
+.anc-v26-table input,.anc-v26-table select,.anc-v26-table textarea{background:#fff!important;color:#172033!important;border:1px solid #cbd8e7!important;border-radius:7px!important;min-height:28px}
+.anc-v26-table textarea{min-height:58px}
+.anc-v26-empty{padding:28px}
+.anc-v26-page-head{border:1px solid #d6e2f0;border-radius:14px;background:#fff;box-shadow:var(--sh);overflow:hidden;margin-bottom:12px}
+.anc-v26-page-color{height:11px;background:var(--anc-color,#2563eb)}
+.anc-v26-page-body{padding:14px}
+@media(max-width:1200px){.anc-v26-kpis{grid-template-columns:repeat(2,minmax(130px,1fr))}.anc-v26-search{min-width:100%;width:100%}.anc-v2-layout{grid-template-columns:1fr!important}.anc-v2-sidebar{position:static!important}}
+</style>
+
+<script id="ancillary-v26-control-script">
+(function(){
+if(window.__ancillaryV26Loaded)return;
+window.__ancillaryV26Loaded=true;
+
+var ANC_COLORS_V26=['#2563eb','#0f766e','#7c3aed','#be123c','#c2410c','#15803d','#a16207','#4338ca','#b91c1c','#047857','#0891b2','#4f46e5'];
+var FAC_STATUS_V26=['All','Confirmed','Maybe','Pending','No Response Received','Declined After Confirmation','Declined'];
+var RSVP_FILTERS_V26=['All','Needs Follow-up','Not Started','Pending','RSVP Requested','Confirmed','Declined','No Response','Guest Added'];
+window.ANC_V26_FILTERS=window.ANC_V26_FILTERS||{q:'',status:'Confirmed',company:'All',rsvp:'All',wave:'All'};
+try{window.ANC_V26_METRICS_COLLAPSED=localStorage.getItem('ancV26MetricsCollapsed')==='1';}catch(e){window.ANC_V26_METRICS_COLLAPSED=false;}
+
+function e26(v){return String(v==null?'':v).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];});}
+function name26(f){return f.fullName||f.name||[f.firstName||f.first,f.lastName||f.last].filter(Boolean).join(' ')||'';}
+function status26(f){return f.status||'No Response Received';}
+function statusBucket26(st){
+  st=String(st||'');
+  if(st==='Confirmed')return 'confirmed';
+  if(st==='Declined'||st==='Declined After Confirmation')return 'declined';
+  if(st==='Maybe'||st==='Pending'||st==='No Response Received'||!st)return 'pending';
+  return 'neutral';
+}
+function rowClass26(f){return 'anc-v26-row-'+statusBucket26(status26(f));}
+function rsvp26(as){return as&&as.rsvp?as.rsvp:'';}
+function isFollowupRsvp26(v){return ['', 'Pending','RSVP Requested','No Response'].indexOf(v||'')>=0;}
+function hasAncAssign26(f,aid){
+  var as=f.ancillaryAssignments&&f.ancillaryAssignments[aid];
+  return !!(as&&(as.wave||as.rsvp||as.paperwork||as.notes||as.guest));
+}
+function option26(value,label,selected){return '<option value="'+e26(value)+'" '+(String(value)===String(selected)?'selected':'')+'>'+e26(label==null?value:label)+'</option>';}
+function select26(onchange,value,opts){
+  return '<select class="grid-input" onchange="'+onchange+'(this.value)">'+opts.map(function(o){return option26(o,o,value);}).join('')+'</select>';
+}
+function input26(onchange,value,type){
+  return '<input class="grid-input" type="'+(type||'text')+'" value="'+e26(value||'')+'" onchange="'+onchange+'(this.value)">';
+}
+function ensureAncV26(id){
+  var s=typeof ensureV6==='function'?ensureV6(id):gsd(id);
+  s.faculty=(s.faculty||[]).map(function(f){return typeof normalizeFacultyV6==='function'?normalizeFacultyV6(f):f;});
+  if(!Array.isArray(s.ancillarySessions))s.ancillarySessions=[];
+  s.ancillarySessions.forEach(function(a,i){
+    if(!a.id)a.id='anc_'+Date.now()+'_'+i;
+    if(!a.company)a.company=a.name||'Ancillary';
+    if(!a.name)a.name=a.company;
+    if(!a.period)a.period='';
+    if(!a.sessionType)a.sessionType='';
+    if(a.capacity==null)a.capacity='';
+    if(!a.color)a.color=ANC_COLORS_V26[i%ANC_COLORS_V26.length];
+  });
+  ssd(id,s);
+  return s;
+}
+function sessions26(s){
+  var arr=s.ancillarySessions||[];
+  if((window.ANC_V26_FILTERS.company||'All')==='All')return arr;
+  return arr.filter(function(a){return a.id===window.ANC_V26_FILTERS.company;});
+}
+function sessionById26(s,id){return (s.ancillarySessions||[]).find(function(a){return a.id===id;});}
+function companyStats26(s,a){
+  var assigned=(s.faculty||[]).filter(function(f){return hasAncAssign26(f,a.id);});
+  var confirmed=assigned.filter(function(f){return rsvp26(f.ancillaryAssignments[a.id])==='Confirmed';}).length;
+  var pending=assigned.filter(function(f){return isFollowupRsvp26(rsvp26(f.ancillaryAssignments[a.id]));}).length;
+  var declined=assigned.filter(function(f){return rsvp26(f.ancillaryAssignments[a.id])==='Declined'||statusBucket26(status26(f))==='declined';}).length;
+  return {assigned:assigned.length,confirmed:confirmed,pending:pending,declined:declined};
+}
+function facultyPool26(s){
+  return (s.faculty||[]).filter(function(f){return name26(f)||f.email;});
+}
+function passFaculty26(s,f){
+  var filters=window.ANC_V26_FILTERS, q=String(filters.q||'').toLowerCase();
+  if(q){
+    var blob=[name26(f),f.affiliation,f.specialty,f.subspecialty,f.cell,f.phone,f.email,f.status,JSON.stringify(f.ancillaryAssignments||{})].join(' ').toLowerCase();
+    if(blob.indexOf(q)<0)return false;
+  }
+  if(filters.status!=='All'&&status26(f)!==filters.status)return false;
+  var company=filters.company||'All';
+  var aid=company==='All'?null:company;
+  if(filters.wave!=='All'){
+    var waveOk=aid?(((f.ancillaryAssignments||{})[aid]||{}).wave===filters.wave):Object.keys(f.ancillaryAssignments||{}).some(function(id){return (f.ancillaryAssignments[id]||{}).wave===filters.wave;});
+    if(!waveOk)return false;
+  }
+  if(filters.rsvp!=='All'){
+    var rsvpOk=false;
+    if(aid){
+      var as=(f.ancillaryAssignments||{})[aid]||{};
+      var rv=rsvp26(as);
+      if(filters.rsvp==='Not Started')rsvpOk=!hasAncAssign26(f,aid);
+      else if(filters.rsvp==='Needs Follow-up')rsvpOk=!hasAncAssign26(f,aid)||isFollowupRsvp26(rv);
+      else rsvpOk=rv===filters.rsvp;
+    }else{
+      var ids=Object.keys(f.ancillaryAssignments||{});
+      if(filters.rsvp==='Not Started')rsvpOk=!ids.length;
+      else if(filters.rsvp==='Needs Follow-up')rsvpOk=!ids.length||ids.some(function(id){return isFollowupRsvp26(rsvp26(f.ancillaryAssignments[id]));});
+      else rsvpOk=ids.some(function(id){return rsvp26(f.ancillaryAssignments[id])===filters.rsvp;});
+    }
+    if(!rsvpOk)return false;
+  }
+  return true;
+}
+function renderStatusPill26(st){
+  var bucket=statusBucket26(st);
+  return '<span class="anc-v26-status-pill '+bucket+'">'+e26(st||'No Response')+'</span>';
+}
+function renderMetrics26(s,faculty){
+  var sessions=s.ancillarySessions||[], assigned=faculty.filter(function(f){return Object.keys(f.ancillaryAssignments||{}).length;}).length;
+  var pending=sessions.reduce(function(total,a){return total+companyStats26(s,a).pending;},0);
+  var confirmedRsvp=sessions.reduce(function(total,a){return total+companyStats26(s,a).confirmed;},0);
+  var over=sessions.filter(function(a){var st=companyStats26(s,a);return a.capacity&&st.confirmed>parseInt(a.capacity,10);}).length;
+  var compact='<div class="anc-v26-compact"><span class="anc-v26-pill info">'+sessions.length+' ancillaries</span><span class="anc-v26-pill good">'+confirmedRsvp+' confirmed RSVP</span><span class="anc-v26-pill warn">'+pending+' pending/no response</span><span class="anc-v26-pill bad">'+over+' capacity warnings</span></div>';
+  var h='<div class="anc-v26-metrics '+(window.ANC_V26_METRICS_COLLAPSED?'collapsed':'')+'"><div class="anc-v26-metrics-head"><div><h3>Master Metrics</h3><span>Minimize for list work, expand for company status and color controls</span></div><button class="anc-v26-toggle" onclick="toggleAncMetricsV26()">'+(window.ANC_V26_METRICS_COLLAPSED?'Maximize':'Minimize')+'</button></div><div class="anc-v26-body">';
+  if(window.ANC_V26_METRICS_COLLAPSED)return h+compact+'</div></div>';
+  h+='<div class="anc-v26-kpis"><div class="anc-v26-kpi info"><span>Ancillaries</span><b>'+sessions.length+'</b></div><div class="anc-v26-kpi good"><span>Confirmed Faculty</span><b>'+faculty.filter(function(f){return status26(f)==='Confirmed';}).length+'</b></div><div class="anc-v26-kpi info"><span>Assigned Faculty</span><b>'+assigned+'</b></div><div class="anc-v26-kpi warn"><span>Pending RSVP</span><b>'+pending+'</b></div><div class="anc-v26-kpi bad"><span>Capacity Warnings</span><b>'+over+'</b></div></div>';
+  if(sessions.length){
+    h+='<div class="anc-v26-company-board">';
+    sessions.forEach(function(a){
+      var st=companyStats26(s,a);
+      h+='<div class="anc-v26-company-card" style="--anc-color:'+e26(a.color)+'"><div class="anc-v26-company-head"></div><div class="anc-v26-company-body"><div class="anc-v26-company-title"><span><span class="anc-v26-dot"></span> '+e26(a.company||a.name||'Ancillary')+'</span><button class="btn btn-s" onclick="ANC_V2_VIEW=\''+e26(a.id)+'\';renderTab(\'ancillary\')">Open</button></div><div class="anc-v26-counts"><div class="anc-v26-count ok"><b>'+st.confirmed+'</b>Confirmed</div><div class="anc-v26-count pending"><b>'+st.pending+'</b>Pending</div><div class="anc-v26-count no"><b>'+st.declined+'</b>Declined</div></div></div></div>';
+    });
+    h+='</div><div class="anc-v26-color-grid">'+sessions.map(function(a,i){return '<label class="anc-v26-color-card"><input type="color" value="'+e26(a.color||ANC_COLORS_V26[i%ANC_COLORS_V26.length])+'" onchange="setAncSessionColorV26('+i+',this.value)"><span>'+e26(a.company||a.name||'Ancillary')+'</span></label>';}).join('')+'</div>';
+  }
+  return h+'</div></div>';
+}
+function renderToolbar26(s){
+  var filters=window.ANC_V26_FILTERS;
+  var companyOptions='<option value="All">All companies</option>'+(s.ancillarySessions||[]).map(function(a){return option26(a.id,a.company||a.name||'Ancillary',filters.company);}).join('');
+  return '<div class="anc-v26-toolbar"><div class="anc-v26-left"><input class="anc-v26-search" placeholder="Search physician, affiliation, company..." value="'+e26(filters.q)+'" oninput="ANC_V26_FILTERS.q=this.value;renderTab(\'ancillary\')"><select onchange="ANC_V26_FILTERS.status=this.value;renderTab(\'ancillary\')">'+FAC_STATUS_V26.map(function(x){return option26(x,x,filters.status);}).join('')+'</select><select onchange="ANC_V26_FILTERS.company=this.value;renderTab(\'ancillary\')">'+companyOptions+'</select><select onchange="ANC_V26_FILTERS.rsvp=this.value;renderTab(\'ancillary\')">'+RSVP_FILTERS_V26.map(function(x){return option26(x,x,filters.rsvp);}).join('')+'</select><select onchange="ANC_V26_FILTERS.wave=this.value;renderTab(\'ancillary\')"><option>All</option>'+(window.ANC_WAVES_V2||[]).filter(Boolean).map(function(x){return option26(x,x,filters.wave);}).join('')+'</select></div><div class="anc-v26-actions"><button class="btn btn-s" onclick="ANC_V26_FILTERS.status=\'Confirmed\';renderTab(\'ancillary\')">Confirmed only</button><button class="btn btn-s" onclick="resetAncFiltersV26()">Reset filters</button>'+(!isRO()?'<button class="btn btn-n" onclick="addAncSessionV2()">'+icon('plus')+' Add ancillary</button>':'')+'</div></div>';
+}
+function renderCountLine26(s,a){
+  var st=companyStats26(s,a);
+  return '<div class="anc-v26-countline"><span class="ok">C '+st.confirmed+'</span><span class="pending">P '+st.pending+'</span><span class="no">D '+st.declined+'</span></div>';
+}
+function renderSessionWorkbook26(s,faculty){
+  var h='<div class="card grid-wrap wide-grid anc-v26-session-grid"><div class="ch"><h3>Ancillary Session Workbook</h3></div><table class="smart-grid anc-v26-table"><thead><tr><th>Color</th><th class="frozen">Ancillary / Company</th><th>Day</th><th>Time</th><th>Period</th><th>Room</th><th>Session Type</th><th>Capacity</th><th>RSVP Snapshot</th><th>Actions</th></tr></thead><tbody>';
+  if(!s.ancillarySessions.length)h+='<tr><td colspan="10"><div class="empty anc-v26-empty">'+icon('calendar-plus')+'<p>No ancillary sessions yet</p><small>Add JNJ, AZ, Merck, or any company. Each one gets a color and separate page.</small></div></td></tr>';
+  (s.ancillarySessions||[]).forEach(function(a,i){
+    var st=companyStats26(s,a);
+    h+='<tr><td><input type="color" value="'+e26(a.color)+'" onchange="setAncSessionColorV26('+i+',this.value)"></td><td class="frozen">'+input26('setAncSessionV26.bind(null,'+i+',\'company\')',a.company)+'</td><td>'+input26('setAncSessionV26.bind(null,'+i+',\'day\')',a.day,'date')+'</td><td>'+input26('setAncSessionV26.bind(null,'+i+',\'time\')',a.time)+'</td><td>'+select26('setAncSessionV26.bind(null,'+i+',\'period\')',a.period,['','Morning','Afternoon','Evening'])+'</td><td>'+input26('setAncSessionV26.bind(null,'+i+',\'room\')',a.room)+'</td><td>'+select26('setAncSessionV26.bind(null,'+i+',\'sessionType\')',a.sessionType,['','Advisory Board','Focus Group','Dinner','Breakfast','Lunch','Other'])+'</td><td>'+input26('setAncSessionV26.bind(null,'+i+',\'capacity\')',a.capacity,'number')+'</td><td><div class="anc-v26-countline"><span class="ok">C '+st.confirmed+'</span><span class="pending">P '+st.pending+'</span><span class="no">D '+st.declined+'</span></div></td><td><button class="btn btn-s" onclick="ANC_V2_VIEW=\''+e26(a.id)+'\';renderTab(\'ancillary\')">Open page</button> '+(!isRO()?'<span class="rd" onclick="removeAncSessionV2(\''+e26(a.id)+'\')">'+icon('trash')+'</span>':'')+'</td></tr>';
+  });
+  return h+'</tbody></table></div>';
+}
+function renderMatrix26(s,faculty){
+  var visibleSessions=sessions26(s), rows=faculty.filter(function(f){return passFaculty26(s,f);});
+  var h='<div class="card grid-wrap wide-grid"><div class="ch"><h3>Physician Matrix - Status + RSVP</h3><span style="font-size:11px;color:var(--text3);font-weight:800">'+rows.length+' shown</span></div><table class="smart-grid anc-v26-table anc-v26-matrix"><thead><tr><th class="frozen">Physician</th><th>Faculty Status</th><th>Affiliation</th><th>Specialty</th><th>Sub-specialty</th><th>Cell</th><th>Email</th>'+visibleSessions.map(function(a){return '<th class="anc-v26-company-th" style="--anc-color:'+e26(a.color)+'"><div class="anc-v26-company-name"><span class="anc-v26-dot"></span>'+e26(a.company||a.name||'Ancillary')+'</div>'+renderCountLine26(s,a)+'<small>Wave / RSVP</small></th>';}).join('')+'</tr></thead><tbody>';
+  if(!rows.length)h+='<tr><td colspan="'+(7+visibleSessions.length)+'"><div class="empty anc-v26-empty">'+icon('filter')+'<p>No matching physicians</p><small>Adjust the filters or add faculty in the Faculty tab.</small></div></td></tr>';
+  rows.forEach(function(f){
+    var fi=s.faculty.indexOf(f);
+    h+='<tr class="'+rowClass26(f)+'"><td class="frozen" style="font-weight:900">'+e26(name26(f))+'</td><td>'+renderStatusPill26(status26(f))+'</td><td>'+e26(f.affiliation||'-')+'</td><td>'+e26(f.specialty||'-')+'</td><td>'+e26(f.subspecialty||'-')+'</td><td>'+e26(f.cell||f.phone||'-')+'</td><td>'+e26(f.email||'-')+'</td>';
+    visibleSessions.forEach(function(a){
+      var as=(f.ancillaryAssignments||{})[a.id]||{};
+      h+='<td class="anc-v26-company-cell" style="--anc-color:'+e26(a.color)+'"><div class="anc-v26-cell-stack">'+select26('setAncAssignV26.bind(null,'+fi+',\''+a.id+'\',\'wave\')',as.wave||'',window.ANC_WAVES_V2||['','Wave 1','Wave 2','Priority','VIP','Backup'])+select26('setAncAssignV26.bind(null,'+fi+',\''+a.id+'\',\'rsvp\')',as.rsvp||'',window.ANC_RSVP_V2||['','Pending','RSVP Requested','Confirmed','Declined','No Response','Guest Added'])+'</div></td>';
+    });
+    h+='</tr>';
+  });
+  return h+'</tbody></table></div>';
+}
+function renderAncPage26(s,faculty){
+  var a=sessionById26(s,window.ANC_V2_VIEW);
+  if(!a){window.ANC_V2_VIEW='master';return renderMaster26(s,faculty);}
+  var ai=s.ancillarySessions.indexOf(a);
+  var participants=faculty.filter(function(f){return hasAncAssign26(f,a.id);}).filter(function(f){return passFaculty26(s,f);});
+  var st=companyStats26(s,a);
+  var h='<div class="anc-v26-page-head" style="--anc-color:'+e26(a.color)+'"><div class="anc-v26-page-color"></div><div class="anc-v26-page-body"><div class="ch" style="padding:0;border:0"><h3>'+e26(a.company||a.name||'Ancillary')+' - Ancillary Page</h3><div class="ca"><button class="btn btn-s" onclick="ANC_V2_VIEW=\'master\';renderTab(\'ancillary\')">Back to Master Matrix</button></div></div><div class="fr" style="margin-top:12px"><div class="fld"><label>Company / Ancillary</label>'+input26('setAncSessionV26.bind(null,'+ai+',\'company\')',a.company)+'</div><div class="fld"><label>Color</label><input type="color" value="'+e26(a.color)+'" onchange="setAncSessionColorV26('+ai+',this.value)"></div></div><div class="fr"><div class="fld"><label>Session Type</label>'+select26('setAncSessionV26.bind(null,'+ai+',\'sessionType\')',a.sessionType,['','Advisory Board','Focus Group','Dinner','Breakfast','Lunch','Other'])+'</div><div class="fld"><label>Capacity</label>'+input26('setAncSessionV26.bind(null,'+ai+',\'capacity\')',a.capacity,'number')+'</div></div><div class="fr"><div class="fld"><label>Day</label>'+input26('setAncSessionV26.bind(null,'+ai+',\'day\')',a.day,'date')+'</div><div class="fld"><label>Time</label>'+input26('setAncSessionV26.bind(null,'+ai+',\'time\')',a.time)+'</div></div><div class="fld"><label>Room</label>'+input26('setAncSessionV26.bind(null,'+ai+',\'room\')',a.room)+'</div></div></div>';
+  h+='<div class="anc-v26-kpis"><div class="anc-v26-kpi info"><span>Invited</span><b>'+st.assigned+'</b></div><div class="anc-v26-kpi good"><span>Confirmed RSVP</span><b>'+st.confirmed+'</b></div><div class="anc-v26-kpi warn"><span>Pending / No Response</span><b>'+st.pending+'</b></div><div class="anc-v26-kpi bad"><span>Declined</span><b>'+st.declined+'</b></div><div class="anc-v26-kpi '+(a.capacity&&st.confirmed>parseInt(a.capacity,10)?'bad':'info')+'"><span>Capacity</span><b>'+st.confirmed+'/'+(a.capacity||0)+'</b></div></div>';
+  h+='<div class="card grid-wrap wide-grid"><div class="ch"><h3>Participant Grid</h3></div><table class="smart-grid anc-v26-table"><thead><tr><th class="frozen">Name</th><th>Faculty Status</th><th>Affiliation</th><th>Specialty</th><th>Sub-specialty</th><th>Cell</th><th>Email</th><th>Wave</th><th>RSVP</th><th>Paperwork</th><th>Notes</th></tr></thead><tbody>';
+  if(!participants.length)h+='<tr><td colspan="11"><div class="empty anc-v26-empty">'+icon('user-plus')+'<p>No physicians invited to this ancillary yet</p><small>Assign a Wave or RSVP from the Master Matrix first.</small></div></td></tr>';
+  participants.forEach(function(f){
+    var fi=s.faculty.indexOf(f),as=(f.ancillaryAssignments||{})[a.id]||{};
+    h+='<tr class="'+rowClass26(f)+'"><td class="frozen" style="font-weight:900">'+e26(name26(f))+'</td><td>'+renderStatusPill26(status26(f))+'</td><td>'+e26(f.affiliation||'-')+'</td><td>'+e26(f.specialty||'-')+'</td><td>'+e26(f.subspecialty||'-')+'</td><td>'+e26(f.cell||f.phone||'-')+'</td><td>'+e26(f.email||'-')+'</td><td>'+select26('setAncAssignV26.bind(null,'+fi+',\''+a.id+'\',\'wave\')',as.wave||'',window.ANC_WAVES_V2||[])+'</td><td>'+select26('setAncAssignV26.bind(null,'+fi+',\''+a.id+'\',\'rsvp\')',as.rsvp||'',window.ANC_RSVP_V2||[])+'</td><td>'+select26('setAncAssignV26.bind(null,'+fi+',\''+a.id+'\',\'paperwork\')',as.paperwork||'Not Requested',window.ANC_PAPERWORK_V5||['','Not Requested','Requested','Received','Not Received'])+'</td><td><textarea class="grid-input" onchange="setAncAssignV26('+fi+',\''+e26(a.id)+'\',\'notes\',this.value)">'+e26(as.notes||'')+'</textarea></td></tr>';
+  });
+  h+='</tbody></table></div><div class="anc-v26-note"><strong>Page rule:</strong> this page shows only physicians who have a Wave, RSVP, paperwork, guest, or notes for this ancillary.</div>';
+  return h;
+}
+function renderMaster26(s,faculty){
+  return renderToolbar26(s)+renderSessionWorkbook26(s,faculty)+renderMatrix26(s,faculty);
+}
+window.toggleAncMetricsV26=function(){
+  window.ANC_V26_METRICS_COLLAPSED=!window.ANC_V26_METRICS_COLLAPSED;
+  try{localStorage.setItem('ancV26MetricsCollapsed',window.ANC_V26_METRICS_COLLAPSED?'1':'0');}catch(e){}
+  renderTab('ancillary');
+};
+window.resetAncFiltersV26=function(){
+  window.ANC_V26_FILTERS={q:'',status:'Confirmed',company:'All',rsvp:'All',wave:'All'};
+  renderTab('ancillary');
+};
+window.setAncSessionColorV26=function(i,color){
+  var s=ensureAncV26(AS);
+  if(!s.ancillarySessions[i])return;
+  s.ancillarySessions[i].color=color||ANC_COLORS_V26[i%ANC_COLORS_V26.length];
+  ssd(AS,s);
+  renderTab('ancillary');
+};
+window.setAncSessionV26=function(i,k,v){
+  var s=ensureAncV26(AS), a=s.ancillarySessions[i];
+  if(!a)return;
+  if(k==='capacity')v=parseInt(v,10)||'';
+  a[k]=v;
+  if(k==='company'||k==='name'){a.company=v;a.name=v;}
+  ssd(AS,s);
+  renderTab('ancillary');
+};
+window.setAncAssignV26=function(fi,aid,k,v){
+  var s=ensureAncV26(AS), f=s.faculty[fi];
+  if(!f)return;
+  if(!f.ancillaryAssignments)f.ancillaryAssignments={};
+  if(!f.ancillaryAssignments[aid])f.ancillaryAssignments[aid]={wave:'',rsvp:'',paperwork:'',notes:''};
+  f.ancillaryAssignments[aid][k]=String(v||'');
+  f.ancillary=true;
+  ssd(AS,s);
+  renderTab('ancillary');
+};
+window.rAncillary=function(s){
+  s=ensureAncV26(AS);
+  var faculty=facultyPool26(s);
+  var chips='<div class="quick-chips v12-chips"><span class="qchip '+(window.ANC_V26_FILTERS.status==='Confirmed'?'on':'')+'" onclick="ANC_V26_FILTERS.status=\'Confirmed\';renderTab(\'ancillary\')">Confirmed</span><span class="qchip" onclick="ANC_V26_FILTERS.status=\'All\';renderTab(\'ancillary\')">All Statuses</span><span class="qchip" onclick="ANC_V26_FILTERS.rsvp=\'Needs Follow-up\';renderTab(\'ancillary\')">Needs Follow-up</span><span class="qchip" onclick="ANC_V26_FILTERS.rsvp=\'No Response\';renderTab(\'ancillary\')">No Response</span><span class="qchip" onclick="ANC_V26_FILTERS.rsvp=\'Confirmed\';renderTab(\'ancillary\')">RSVP Confirmed</span></div>';
+  return '<div class="anc-v26-top">'+chips+renderMetrics26(s,faculty)+'</div><div class="anc-v2-layout">'+renderAncSidebarV2(s)+'<div class="anc-v2-main">'+(window.ANC_V2_VIEW==='master'?renderMaster26(s,faculty):renderAncPage26(s,faculty))+'</div></div>';
 };
 })();
 </script>
